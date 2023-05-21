@@ -1,0 +1,265 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  "network.yml"
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Network Configuration
+        Parameters:
+          - ProjectName
+          - EnvType
+          - Owner
+Parameters:
+  ProjectName:
+    Type: String
+    Description: (Required) type project name.
+  EnvType:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - "dev"
+      - "stg"
+      - "prd"
+    Description: (Default:dev) type environment name(dev/stg/prd).
+  Owner:
+    Type: String
+    Description: (Default:dev) type owner(e.g. costmanagement).
+Resources:
+  #------------------------
+  # VPCの作成
+  #------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-vpc"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  #------------------------
+  # インターネットゲートウェイの作成
+  #------------------------
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-igw"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  IGWAttachment:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref VPC
+  #------------------------
+  # NATゲートウェイの作成
+  #------------------------
+  NATGW:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATEIP.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-nat"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  NATEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: "vpc"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-eip-nat"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  #------------------------
+  # サブネットの作成
+  #------------------------
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref "AWS::Region"]
+      CidrBlock: 10.0.0.0/24
+      Tags:
+        - Key: Name
+          Value: !Join
+            - "-"
+            - - !Ref ProjectName
+              - !Ref EnvType
+              - !Select [0, Fn::GetAZs: !Ref "AWS::Region"]
+              - "public"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+      VpcId: !Ref VPC
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
+      CidrBlock: 10.0.1.0/24
+      Tags:
+        - Key: Name
+          Value: !Join
+            - "-"
+            - - !Ref ProjectName
+              - !Ref EnvType
+              - !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
+              - "public"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+      VpcId: !Ref VPC
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref "AWS::Region"]
+      CidrBlock: 10.0.10.0/24
+      Tags:
+        - Key: Name
+          Value: !Join
+            - "-"
+            - - !Ref ProjectName
+              - !Ref EnvType
+              - !Select [0, Fn::GetAZs: !Ref "AWS::Region"]
+              - "private"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+      VpcId: !Ref VPC
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
+      CidrBlock: 10.0.11.0/24
+      Tags:
+        - Key: Name
+          Value: !Join
+            - "-"
+            - - !Ref ProjectName
+              - !Ref EnvType
+              - !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
+              - "private"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+      VpcId: !Ref VPC
+  #------------------------
+  # ルートテーブルの作成(Public)
+  #------------------------
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-rtb-public"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+      VpcId: !Ref VPC
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetA
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetB
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref PublicRouteTable
+  #------------------------
+  # ルートテーブルの作成(Private)
+  #------------------------
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-rtb-private"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+      VpcId: !Ref VPC
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetA
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetB
+  PrivateRoute:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NATGW
+Outputs:
+  VPC:
+    Value: !Ref VPC
+    Export:
+      Name: VPC
+  PublicSubnetA:
+    Value: !Ref PublicSubnetA
+    Export:
+      Name: PublicSubnetA
+  PublicSubnetB:
+    Value: !Ref PublicSubnetB
+    Export:
+      Name: PublicSubnetB
+  PrivateSubnetA:
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: PrivateSubnetA
+  PrivateSubnetB:
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: PrivateSubnetB

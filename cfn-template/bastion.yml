@@ -1,0 +1,159 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  "bastion.yml"
+Parameters:
+  ProjectName:
+    Type: String
+    Description: (Required) type project name.
+  EnvType:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - "dev"
+      - "stg"
+      - "prd"
+    Description: (Default:dev) type environment name(dev/stg/prd).
+  Owner:
+    Type: String
+    Description: (Default:dev) type owner(e.g. costmanagement).
+Resources:
+  BastionECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${ProjectName}-${EnvType}-ecr-bastion"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-ecr-repo-bastion"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  BastionServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue VPC
+      GroupName: !Sub "${ProjectName}-${EnvType}-ecs-sg"
+      GroupDescription: "ECS security group"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-ecs-sg"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  BastionCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ProjectName}-${EnvType}-ecs-cluster-bastion"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-ecs-cluster-bastion"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  BastionTaskExcecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      RoleName: !Sub "${ProjectName}-${EnvType}-exerole-bastion"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-iam-ecs-execution-role-bastion"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  BastionTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      RoleName: !Sub "${ProjectName}-${EnvType}-task-bastion"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-iam-ecs-task-role-bastion"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  BastionTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      NetworkMode: "awsvpc"
+      ContainerDefinitions:
+        - Name: !Sub "${ProjectName}-container-bastion"
+          Image: public.ecr.aws/amazonlinux/amazonlinux:2.0.20230504.1-arm64v8
+      ExecutionRoleArn: !GetAtt  BastionTaskExcecutionRole.Arn
+      TaskRoleArn: !GetAtt  BastionTaskRole.Arn
+      Cpu: "256"
+      Memory: "512"
+      RequiresCompatibilities:
+        - FARGATE
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-ecs-taskdefinition-bastion"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  BastionService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref BastionCluster
+      LaunchType: "FARGATE"
+      DesiredCount: 0
+      TaskDefinition: !Ref BastionTaskDefinition
+      ServiceName: !Sub "${ProjectName}-service-bastion"
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !ImportValue PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-ecs-service-bastion"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+Outputs:
+  BastionECR:
+    Value: !Ref BastionECR
+    Export:
+      Name: BastionECR
+  BastionCluster:
+    Value: !Ref BastionCluster
+    Export:
+      Name: !Sub "${ProjectName}-${EnvType}-ecs-cluster-bastion"
