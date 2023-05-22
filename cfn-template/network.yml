@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: |
-  "network.yml"
+  "This stack is generated from bastion.yml"
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:

@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: |
-  "bastion.yml"
+  "This stack is generated from bastion.yml"
 Parameters:
   ProjectName:
     Type: String
@@ -16,6 +16,15 @@ Parameters:
   Owner:
     Type: String
     Description: (Default:dev) type owner(e.g. costmanagement).
+  VPC:
+    Description: (Required) Select VPC
+    Type: AWS::EC2::VPC::Id
+  Subnet:
+    Description: (Required) Select Subnet
+    Type: AWS::EC2::Subnet::Id
+  TaskDesiredCount:
+    Type: Number
+    Default: "0"
 Resources:
   BastionECR:
     Type: AWS::ECR::Repository
@@ -33,7 +42,7 @@ Resources:
   BastionServiceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      VpcId: !ImportValue VPC
+      VpcId: !Ref VPC
       GroupName: !Sub "${ProjectName}-${EnvType}-ecs-sg"
       GroupDescription: "ECS security group"
       Tags:
@@ -92,9 +101,39 @@ Resources:
             Principal:
               Service:
                 - ecs-tasks.amazonaws.com
+                - ssm.amazonaws.com
             Action:
               - sts:AssumeRole
       RoleName: !Sub "${ProjectName}-${EnvType}-task-bastion"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: !Sub "${ProjectName}-${EnvType}-task-bastion-policy"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: SessionManagerAccess
+                Effect: Allow
+                Action:
+                  - "ssm:GetDocument"
+                  - "ssm:ListDocuments"
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:document/SessionDocument-*
+              - Sid: CreateActivation
+                Effect: Allow
+                Action:
+                  - "ssm:DeleteActivation"
+                  - "ssm:CreateActivation"
+                  - "ssm:DescribeActivations"
+                Resource:
+                  - "*"
+              - Sid: PassRole
+                Effect: Allow
+                Action:
+                  - "iam:GetRole"
+                  - "iam:PassRole"
+                Resource:
+                  - "*"
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvType}-iam-ecs-task-role-bastion"
@@ -110,9 +149,14 @@ Resources:
       NetworkMode: "awsvpc"
       ContainerDefinitions:
         - Name: !Sub "${ProjectName}-container-bastion"
-          Image: public.ecr.aws/amazonlinux/amazonlinux:2.0.20230504.1-arm64v8
-      ExecutionRoleArn: !GetAtt  BastionTaskExcecutionRole.Arn
-      TaskRoleArn: !GetAtt  BastionTaskRole.Arn
+          Image: public.ecr.aws/amazon-ssm-agent/amazon-ssm-agent:latest
+          PseudoTerminal: true
+          Command:
+            - "mkdir -p /.ssm/containers/current ;"
+            - !Sub "ACTIVATION=$(aws ssm create-activation --iam-role ${ProjectName}-container-bastion --registration-limit 1 --region ${AWS::Region} --output json) ;"
+            - !Sub "echo ${!ACTIVATION} | jq --arg region ${AWS::Region} '. + {Region: $region}' > /.ssm/containers/current/user-data ;"
+      ExecutionRoleArn: !GetAtt BastionTaskExcecutionRole.Arn
+      TaskRoleArn: !GetAtt BastionTaskRole.Arn
       Cpu: "256"
       Memory: "512"
       RequiresCompatibilities:
@@ -131,14 +175,16 @@ Resources:
     Properties:
       Cluster: !Ref BastionCluster
       LaunchType: "FARGATE"
-      DesiredCount: 0
+      DesiredCount: !Ref TaskDesiredCount
       TaskDefinition: !Ref BastionTaskDefinition
       ServiceName: !Sub "${ProjectName}-service-bastion"
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
           Subnets:
-            - !ImportValue PublicSubnetA
+            - !Ref Subnet
+          SecurityGroups:
+            - !Ref BastionServiceSecurityGroup
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-${EnvType}-ecs-service-bastion"
