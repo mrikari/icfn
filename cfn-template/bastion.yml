@@ -149,12 +149,13 @@ Resources:
       NetworkMode: "awsvpc"
       ContainerDefinitions:
         - Name: !Sub "${ProjectName}-container-bastion"
-          Image: public.ecr.aws/amazon-ssm-agent/amazon-ssm-agent:latest
+          Image: public.ecr.aws/amazonlinux/amazonlinux:2023
           PseudoTerminal: true
           Command:
-            - "mkdir -p /.ssm/containers/current ;"
-            - !Sub "ACTIVATION=$(aws ssm create-activation --iam-role ${ProjectName}-container-bastion --registration-limit 1 --region ${AWS::Region} --output json) ;"
-            - !Sub "echo ${!ACTIVATION} | jq --arg region ${AWS::Region} '. + {Region: $region}' > /.ssm/containers/current/user-data ;"
+            - "sudo service amazon-ssm-agent stop"
+            - !Sub "sudo amazon-ssm-agent -register -code {{resolve:ssm:icfn-dev-ssmparam-bastion-code}} -id {{resolve:ssm:icfn-dev-ssmparam-bastion-id}} -region ${AWS::Region}"
+          EntryPoint:
+            - "sudo amazon-ssm-agent"
       ExecutionRoleArn: !GetAtt BastionTaskExcecutionRole.Arn
       TaskRoleArn: !GetAtt BastionTaskRole.Arn
       Cpu: "256"

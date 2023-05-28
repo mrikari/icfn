@@ -1,0 +1,159 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  This stack is generated from "lambda.yml"
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Network Configuration
+        Parameters:
+          - ProjectName
+          - EnvType
+          - Owner
+Parameters:
+  ProjectName:
+    Type: String
+    Description: (Required) type project name.
+  EnvType:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - "dev"
+      - "stg"
+      - "prd"
+    Description: (Default:dev) type environment name(dev/stg/prd).
+  Owner:
+    Type: String
+    Description: (Default:dev) type owner(e.g. costmanagement).
+Resources:
+  SessionActivationCodeId:
+    Type: AWS::SSM::Parameter
+    Properties:
+      DataType: "text"
+      Name: !Sub "${ProjectName}-${EnvType}-ssmparam-bastion-id"
+      Type: "String" # Required
+      Value: "novalue" # Required
+  SessionActivationCode:
+    Type: AWS::SSM::Parameter
+    Properties:
+      DataType: "text"
+      Name: !Sub "${ProjectName}-${EnvType}-ssmparam-bastion-code"
+      Type: "String" # Required
+      Value: "novalue" # Required
+  BastionSessionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs.amazonaws.com
+                - ssm.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      RoleName: !Sub "${ProjectName}-${EnvType}-iam-role-ecs-bastion"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-iam-role-bastion-ecs"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  SessionCreateActivationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: GetSSMParameter
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}-${EnvType}-ssmparam-bastion-id"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}-${EnvType}-ssmparam-bastion-code"
+        - PolicyName: CreateActivationTargetPassRole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - "*"
+        - PolicyName: CreateActivationTargetRole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:DeleteActivation
+                  - ssm:CreateActivation
+                  - ssm:DescribeActivations
+                Resource:
+                  - "*"
+      RoleName: !Sub "${ProjectName}-${EnvType}-iam-role-lambda"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-iam-role-lambda"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
+  LambdaBastionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: test-create-activation
+      MemorySize: 128
+      Role: !GetAtt SessionCreateActivationLambdaRole.Arn
+      Runtime: python3.10
+      Handler: index.lambda_handler
+      Code:
+        ZipFile: !Sub |
+          import boto3
+          import json
+          client = boto3.client('ssm')
+          def lambda_handler(event, context):
+              response = client.create_activation(
+                  IamRole='${ProjectName}-${EnvType}-iam-role-ecs-bastion',
+                  RegistrationLimit=1,
+              )
+              client.put_parameter(
+                Name="${ProjectName}-${EnvType}-ssmparam-bastion-id",
+                Value=response["ActivationId"],
+                Overwrite=True,
+              )
+              client.put_parameter(
+                Name="${ProjectName}-${EnvType}-ssmparam-bastion-code",
+                Value=response["ActivationCode"],
+                Overwrite=True,
+              )
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${EnvType}-iam-role-lambda"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: EnvType
+          Value: !Ref EnvType
